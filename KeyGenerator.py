@@ -8,12 +8,12 @@ import os
 
 class KeyGenerator:
 
-    def __init__(self,db, key_size=2048 ):
+    def __init__(self, db, key_size=2048):
         self.key_size = key_size
         self.algorithm = f"RSA-{key_size}"
         self.db = db
-    def generate_key_pair(self):
 
+    def generate_key_pair(self):
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=self.key_size
@@ -87,11 +87,52 @@ class KeyGenerator:
             'algorithm': self.algorithm
         }
 
+    def generate_and_store_keys(self, user_id: str, password: str):
+        """
+        Generate keys and store them in database
+
+        Args:
+            user_id: UUID of the user
+            password: User's password for encrypting private key
+
+        Returns:
+            key_id if successful, None otherwise
+        """
+        print(f"\n🔑 Generating and storing keys for user: {user_id}")
+
+        try:
+            # Generate and encrypt keys
+            keys = self.generate_and_encrypt(password)
+
+            # Store in database
+            key_id = self.db.insert_key(
+                user_id=user_id,
+                public_key=keys['public_key'],
+                encrypted_private_key=keys['encrypted_private_key'],
+                salt=keys['salt'],
+                algorithm=keys['algorithm']
+            )
+
+            if key_id:
+                print(f"✅ Keys successfully stored with ID: {key_id}")
+                return key_id
+            else:
+                print("❌ Failed to store keys in database")
+                return None
+
+        except Exception as e:
+            print(f"❌ Error generating/storing keys: {e}")
+            return None
+
     def test_key_generation(self):
-        # folosim self.db, nu db global
+        # Get test user password
         test_password = self.db.get_user_password("test_user")
 
-        # folosim generatorul curent
+        if not test_password:
+            print("❌ Test user not found!")
+            return
+
+        # Generate and encrypt keys
         keys = self.generate_and_encrypt(test_password)
 
         print(f"\n📊 Results:")
@@ -130,4 +171,3 @@ class KeyGenerator:
         print("\n" + "=" * 60)
         print("✅ KEY GENERATOR TEST COMPLETE")
         print("=" * 60 + "\n")
-
