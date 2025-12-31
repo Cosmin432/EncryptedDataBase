@@ -118,5 +118,78 @@ class Database:
             self.conn.rollback()
             return None
 
+    def get_file_decryption_info(self, user_id: str, file_id: str):
+        """
+        Fetch all necessary info to decrypt a file.
+
+        Returns:
+            dict with keys:
+                - encrypted_file_path
+                - encrypted_private_key
+                - salt
+            or None if not found
+        """
+        try:
+            with self.conn.cursor() as cursor:
+                # 1️⃣ Fetch encrypted file path
+                cursor.execute("""
+                               SELECT encrypted_file_path
+                               FROM my_schema.files
+                               WHERE file_id = %s
+                                 AND user_id = %s
+                               """, (file_id, user_id))
+                file_row = cursor.fetchone()
+                if not file_row:
+                    print(f"❌ File {file_id} not found for user {user_id}")
+                    return None
+                encrypted_file_path = file_row[0]
+
+                # 2️⃣ Fetch encrypted private key + salt
+                cursor.execute("""
+                               SELECT encrypted_private_key, salt
+                               FROM my_schema.keys
+                               WHERE user_id = %s
+                                 AND is_active = TRUE
+                               ORDER BY created_at DESC LIMIT 1
+                               """, (user_id,))
+                key_row = cursor.fetchone()
+                if not key_row:
+                    print(f"❌ No active private key found for user {user_id}")
+                    return None
+
+                encrypted_private_key, salt = key_row
+
+                return {
+                    "encrypted_file_path": encrypted_file_path,
+                    "encrypted_private_key": encrypted_private_key,
+                    "salt": salt
+                }
+
+        except Exception as e:
+            print(f"❌ Failed to fetch decryption info: {e}")
+            return None
+
+    def get_active_key_id(self, user_id: str) -> str:
+        """
+        Return the key_id of the active key for the given user.
+        Returns None if no active key exists.
+        """
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute("""
+                               SELECT key_id
+                               FROM my_schema.keys
+                               WHERE user_id = %s
+                                 AND is_active = TRUE
+                               ORDER BY created_at DESC LIMIT 1
+                               """, (user_id,))
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                return None
+        except Exception as e:
+            print(f"❌ Failed to fetch active key ID: {e}")
+            return None
+
     def close(self):
         self.conn.close()
