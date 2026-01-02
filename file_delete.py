@@ -3,7 +3,7 @@ from secure_delete import secure_wipe_file
 
 def delete_file(db: Database, user_id: str, file_id: str) -> bool:
 
-    print(f"\n🧨 Starting deletion for file_id: {file_id}")
+    print(f"\nStarting deletion for file_id: {file_id}")
 
     # 1️⃣ Fetch encrypted file path
     info = db.get_file_decryption_info(user_id, file_id)

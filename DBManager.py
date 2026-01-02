@@ -204,5 +204,31 @@ class Database:
             print(f"❌ Failed to delete metadata: {e}")
             return False
 
+    def update_file_path(self, file_id: str, new_path: str) -> bool:
+        """
+        Update the encrypted_file_path in the database for a given file_id.
+
+        Args:
+            file_id: UUID of the file
+            new_path: new path to the .enc file on disk
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute("""
+                               UPDATE my_schema.files
+                               SET encrypted_file_path = %s
+                               WHERE file_id = %s
+                               """, (new_path, file_id))
+                self.conn.commit()
+            print(f"✅ Updated DB path for file_id {file_id} to {new_path}")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to update DB path for {file_id}: {e}")
+            self.conn.rollback()
+            return False
+
     def close(self):
         self.conn.close()
