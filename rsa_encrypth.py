@@ -7,10 +7,7 @@ from file_reader import read_file_from_path
 import os
 
 def encrypt_file_hybrid(db, user_id: str, key_id: str, input_file_path: str) -> str:
-    """
-    Encrypt a file using hybrid RSA + AES.
-    RSA encrypts AES key, AES encrypts file content.
-    """
+
     # 1️⃣ Get public key from DB
     public_key_pem = db.get_active_public_key(user_id)
     if not public_key_pem:

@@ -88,16 +88,7 @@ class KeyGenerator:
         }
 
     def generate_and_store_keys(self, user_id: str, password: str):
-        """
-        Generate keys and store them in database
 
-        Args:
-            user_id: UUID of the user
-            password: User's password for encrypting private key
-
-        Returns:
-            key_id if successful, None otherwise
-        """
         print(f"\n🔑 Generating and storing keys for user: {user_id}")
 
         try:

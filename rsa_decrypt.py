@@ -6,9 +6,7 @@ from KeyGenerator import KeyGenerator
 import getpass
 
 def decrypt_file_hybrid(db: Database, user_id: str, file_id: str, password: str, output_dir="data/decrypted") -> Path:
-    """
-    Decrypt file encrypted with hybrid RSA + AES with verbose debug messages
-    """
+
     print(f"\n🔍 Starting decryption for file ID: {file_id} and user: {user_id}")
 
     # 1️⃣ Fetch decryption info from DB

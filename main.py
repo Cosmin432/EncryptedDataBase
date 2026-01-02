@@ -25,7 +25,7 @@ else:
     print(f"✅ New key generated. Key ID: {key_id}")
 
 # 3️⃣ Prompt user for action
-action = input("Do you want to (E)ncrypt or (D)ecrypt a file? [E/D]: ").strip().upper()
+action = input("Do you want to (E)ncrypt, (D)ecrypt or (X)Delete a file? [E/D/X]:").strip().upper()
 
 if action == "E":
     input_path = input("Enter path to file to encrypt: ").strip()
@@ -43,7 +43,15 @@ elif action == "D":
         print(f"✅ File successfully decrypted: {output_path}")
     else:
         print("❌ Decryption failed. Check file ID, password, or file integrity.")
+elif action == "X":
+    file_id = input("Enter file ID to delete: ").strip()
+    confirm = input("Type DELETE to confirm: ").strip()
 
+    if confirm != "DELETE":
+        print("❌ Deletion cancelled")
+    else:
+        from file_delete import delete_file
+        delete_file(db, user_id, file_id)
 else:
     print("❌ Invalid option. Please choose 'E' or 'D'.")
 

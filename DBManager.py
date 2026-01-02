@@ -119,16 +119,7 @@ class Database:
             return None
 
     def get_file_decryption_info(self, user_id: str, file_id: str):
-        """
-        Fetch all necessary info to decrypt a file.
 
-        Returns:
-            dict with keys:
-                - encrypted_file_path
-                - encrypted_private_key
-                - salt
-            or None if not found
-        """
         try:
             with self.conn.cursor() as cursor:
                 # 1️⃣ Fetch encrypted file path
@@ -170,10 +161,7 @@ class Database:
             return None
 
     def get_active_key_id(self, user_id: str) -> str:
-        """
-        Return the key_id of the active key for the given user.
-        Returns None if no active key exists.
-        """
+
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute("""
@@ -189,7 +177,32 @@ class Database:
                 return None
         except Exception as e:
             print(f"❌ Failed to fetch active key ID: {e}")
-            return None
+            return
+
+    def delete_file_metadata(self, user_id: str, file_id: str) -> bool:
+
+        try:
+            with self.conn.cursor() as cursor:
+                cursor.execute("""
+                               DELETE
+                               FROM my_schema.files
+                               WHERE file_id = %s
+                                 AND user_id = %s RETURNING encrypted_file_path
+                               """, (file_id, user_id))
+
+                result = cursor.fetchone()
+                if not result:
+                    print("❌ No metadata found to delete")
+                    return False
+
+                self.conn.commit()
+                print("✅ File metadata deleted from DB")
+                return True
+
+        except Exception as e:
+            self.conn.rollback()
+            print(f"❌ Failed to delete metadata: {e}")
+            return False
 
     def close(self):
         self.conn.close()
