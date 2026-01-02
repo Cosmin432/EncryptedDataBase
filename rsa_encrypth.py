@@ -1,4 +1,32 @@
-def encrypt_file_hybrid(db, user_id: str, key_id: str, input_file_path: str) -> str:
+def encrypt_file_hybrid(db, user_id: str, key_id: str, input_file_path: str) -> str | None:
+    """
+    Encrypt a file using a hybrid AES+RSA scheme and store its metadata in the database.
+
+    Steps:
+        1. Retrieve the user's active public key from the database.
+        2. Read the file content from disk.
+        3. Generate a random AES-256 key.
+        4. Encrypt the file using AES in EAX mode.
+        5. Encrypt the AES key using the user's RSA public key.
+        6. Save the encrypted data to a temporary file.
+        7. Insert file metadata into the database (gets the official file_id).
+        8. Rename the temporary file to match the database file_id and update the DB path.
+
+    Args:
+        db: Database instance for storing metadata and fetching public keys.
+        user_id: UUID of the user performing the encryption.
+        key_id: UUID of the encryption key to associate with the file.
+        input_file_path: Path to the original file to encrypt.
+
+    Returns:
+        str: The UUID of the inserted file in the database if successful.
+        None: If encryption or metadata insertion fails.
+
+    Notes:
+        - The function ensures that the encrypted file on disk matches the database file_id.
+        - Temporary files are cleaned up if metadata insertion fails.
+        - Prints detailed progress and error messages for debugging.
+    """
     from pathlib import Path
     from Crypto.PublicKey import RSA
     from Crypto.Cipher import PKCS1_OAEP, AES

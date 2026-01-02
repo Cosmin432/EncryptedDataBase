@@ -1,12 +1,34 @@
+"""
+Database access layer for the encrypted file storage system.
+
+This module provides the Database class, which encapsulates all interactions
+with the PostgreSQL database, including users, encryption keys, and encrypted
+file metadata.
+"""
+
 import psycopg2
 from datetime import datetime
-from key_fs_manager import save_private_key, save_public_key
-from psycopg2 import *
-import hashlib
 from pathlib import Path
+import hashlib
+
+from key_fs_manager import save_private_key, save_public_key
+
 
 class Database:
+    """
+    Handles all database operations for users, keys, and encrypted files.
+
+    This class manages a persistent PostgreSQL connection and exposes
+    high-level methods for inserting, querying, updating, and deleting
+    encryption-related data.
+    """
+
     def __init__(self):
+        """
+        Initialize the database connection.
+
+        Connects to the PostgreSQL database using predefined credentials.
+        """
         self.conn = psycopg2.connect(
             host="localhost",
             port=5432,
@@ -15,20 +37,48 @@ class Database:
             database="encrypteddb"
         )
 
-    def get_user_password(self, username):
+    def get_user_password(self, username: str) -> str | None:
+        """
+        Retrieve the stored password hash for a given user.
+
+        Args:
+            username: The username to look up.
+
+        Returns:
+            The password hash if the user exists, otherwise None.
+        """
         with self.conn.cursor() as cursor:
             cursor.execute(
                 "SELECT password_hash FROM my_schema.users WHERE username=%s",
                 (username,)
             )
             result = cursor.fetchone()
-            if result:
-                return result[0]
-            return None
+            return result[0] if result else None
 
-    def insert_key(self, user_id: str, public_key: str, encrypted_private_key: str, salt: str,
-                   algorithm: str = "RSA-2048"):
+    def insert_key(
+        self,
+        user_id: str,
+        public_key: str,
+        encrypted_private_key: str,
+        salt: str,
+        algorithm: str = "RSA-2048"
+    ) -> str | None:
+        """
+        Insert a new encryption key pair for a user.
 
+        The key is marked as active and stored both in the database and
+        on disk via the key_fs_manager.
+
+        Args:
+            user_id: UUID of the user.
+            public_key: Public key in PEM format.
+            encrypted_private_key: Encrypted private key.
+            salt: Salt used for private key encryption.
+            algorithm: Encryption algorithm identifier.
+
+        Returns:
+            The generated key_id if successful, otherwise None.
+        """
         import uuid
 
         try:
@@ -36,17 +86,24 @@ class Database:
                 key_id = str(uuid.uuid4())
 
                 cursor.execute("""
-                               INSERT INTO my_schema.keys (key_id, user_id, public_key, encrypted_private_key,
-                                                           salt, algorithm, is_active)
-                               VALUES (%s, %s, %s, %s, %s, %s, TRUE) RETURNING key_id
-                               """, (key_id, user_id, public_key, encrypted_private_key, salt, algorithm))
+                    INSERT INTO my_schema.keys (
+                        key_id, user_id, public_key,
+                        encrypted_private_key, salt,
+                        algorithm, is_active
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE)
+                    RETURNING key_id
+                """, (
+                    key_id, user_id, public_key,
+                    encrypted_private_key, salt, algorithm
+                ))
 
-                self.conn.commit()
                 result = cursor.fetchone()
+                self.conn.commit()
 
-                print(f"✅ Key inserted with ID: {result[0]}")
                 save_private_key(user_id, encrypted_private_key)
                 save_public_key(user_id, public_key)
+
                 return result[0]
 
         except Exception as e:
@@ -54,63 +111,97 @@ class Database:
             self.conn.rollback()
             return None
 
-    def get_active_public_key(self, user_id: str) -> str:
+    def get_active_public_key(self, user_id: str) -> str | None:
+        """
+        Fetch the currently active public key for a user.
 
+        Args:
+            user_id: UUID of the user.
+
+        Returns:
+            The public key as a string, or None if not found.
+        """
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute("""
-                               SELECT public_key
-                               FROM my_schema.keys
-                               WHERE user_id = %s
-                                 AND is_active = TRUE
-                               ORDER BY created_at DESC LIMIT 1
-                               """, (user_id,))
+                    SELECT public_key
+                    FROM my_schema.keys
+                    WHERE user_id = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (user_id,))
                 result = cursor.fetchone()
-                if not result:
-                    raise Exception(f"❌ No active public key found for user {user_id}")
-                return result[0]
+                return result[0] if result else None
+
         except Exception as e:
             print(f"❌ Failed to fetch public key: {e}")
             return None
 
-    def insert_file_metadata(self, user_id: str, key_id: str, original_file_path: str,
-                             encrypted_file_path: str, shard_path: str = None) -> str:
+    def insert_file_metadata(
+        self,
+        user_id: str,
+        key_id: str,
+        original_file_path: str,
+        encrypted_file_path: str,
+        shard_path: str | None = None
+    ) -> str | None:
+        """
+        Insert metadata for an encrypted file.
 
+        Stores file sizes, checksums, encryption timestamp, and paths.
+
+        Args:
+            user_id: UUID of the file owner.
+            key_id: UUID of the encryption key used.
+            original_file_path: Path to the original file.
+            encrypted_file_path: Path to the encrypted .enc file.
+            shard_path: Optional shard storage path.
+
+        Returns:
+            The generated file_id if successful, otherwise None.
+        """
         import uuid
+
+        def sha256_checksum(path: str) -> str:
+            """Compute SHA-256 checksum for a file."""
+            h = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    h.update(chunk)
+            return h.hexdigest()
+
         try:
             file_id = str(uuid.uuid4())
-            original_filename = Path(original_file_path).name
-            original_size = Path(original_file_path).stat().st_size
-            encrypted_size = Path(encrypted_file_path).stat().st_size
-
-            # Calculate checksums
-            def sha256_checksum(file_path):
-                h = hashlib.sha256()
-                with open(file_path, "rb") as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        h.update(chunk)
-                return h.hexdigest()
-
-            original_checksum = sha256_checksum(original_file_path)
-            encrypted_checksum = sha256_checksum(encrypted_file_path)
-
-            encrypted_at = datetime.utcnow()
+            original_path = Path(original_file_path)
+            encrypted_path = Path(encrypted_file_path)
 
             with self.conn.cursor() as cursor:
                 cursor.execute("""
-                               INSERT INTO my_schema.files
-                               (file_id, user_id, key_id, original_filename, original_size,
-                                encrypted_size, encrypted_file_path, shard_path,
-                                original_checksum, encrypted_checksum, encrypted_at)
-                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING file_id
-                               """, (
-                                   file_id, user_id, key_id, original_filename, original_size,
-                                   encrypted_size, encrypted_file_path, shard_path,
-                                   original_checksum, encrypted_checksum, encrypted_at
-                               ))
-                self.conn.commit()
+                    INSERT INTO my_schema.files (
+                        file_id, user_id, key_id,
+                        original_filename, original_size,
+                        encrypted_size, encrypted_file_path,
+                        shard_path, original_checksum,
+                        encrypted_checksum, encrypted_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING file_id
+                """, (
+                    file_id,
+                    user_id,
+                    key_id,
+                    original_path.name,
+                    original_path.stat().st_size,
+                    encrypted_path.stat().st_size,
+                    encrypted_file_path,
+                    shard_path,
+                    sha256_checksum(original_file_path),
+                    sha256_checksum(encrypted_file_path),
+                    datetime.utcnow()
+                ))
+
                 result = cursor.fetchone()
-                print(f"✅ File metadata inserted with ID: {result[0]}")
+                self.conn.commit()
                 return result[0]
 
         except Exception as e:
@@ -118,85 +209,98 @@ class Database:
             self.conn.rollback()
             return None
 
-    def get_file_decryption_info(self, user_id: str, file_id: str):
+    def get_file_decryption_info(self, user_id: str, file_id: str) -> dict | None:
+        """
+        Retrieve all information required to decrypt a file.
 
+        Args:
+            user_id: UUID of the requesting user.
+            file_id: UUID of the encrypted file.
+
+        Returns:
+            Dictionary containing encrypted file path, encrypted private key,
+            and salt, or None if not found.
+        """
         try:
             with self.conn.cursor() as cursor:
-                # 1️⃣ Fetch encrypted file path
                 cursor.execute("""
-                               SELECT encrypted_file_path
-                               FROM my_schema.files
-                               WHERE file_id = %s
-                                 AND user_id = %s
-                               """, (file_id, user_id))
+                    SELECT encrypted_file_path
+                    FROM my_schema.files
+                    WHERE file_id = %s AND user_id = %s
+                """, (file_id, user_id))
                 file_row = cursor.fetchone()
                 if not file_row:
-                    print(f"❌ File {file_id} not found for user {user_id}")
                     return None
-                encrypted_file_path = file_row[0]
 
-                # 2️⃣ Fetch encrypted private key + salt
                 cursor.execute("""
-                               SELECT encrypted_private_key, salt
-                               FROM my_schema.keys
-                               WHERE user_id = %s
-                                 AND is_active = TRUE
-                               ORDER BY created_at DESC LIMIT 1
-                               """, (user_id,))
+                    SELECT encrypted_private_key, salt
+                    FROM my_schema.keys
+                    WHERE user_id = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (user_id,))
                 key_row = cursor.fetchone()
                 if not key_row:
-                    print(f"❌ No active private key found for user {user_id}")
                     return None
 
-                encrypted_private_key, salt = key_row
-
                 return {
-                    "encrypted_file_path": encrypted_file_path,
-                    "encrypted_private_key": encrypted_private_key,
-                    "salt": salt
+                    "encrypted_file_path": file_row[0],
+                    "encrypted_private_key": key_row[0],
+                    "salt": key_row[1],
                 }
 
         except Exception as e:
             print(f"❌ Failed to fetch decryption info: {e}")
             return None
 
-    def get_active_key_id(self, user_id: str) -> str:
+    def get_active_key_id(self, user_id: str) -> str | None:
+        """
+        Retrieve the active key ID for a user.
 
+        Args:
+            user_id: UUID of the user.
+
+        Returns:
+            The active key_id or None if not found.
+        """
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute("""
-                               SELECT key_id
-                               FROM my_schema.keys
-                               WHERE user_id = %s
-                                 AND is_active = TRUE
-                               ORDER BY created_at DESC LIMIT 1
-                               """, (user_id,))
+                    SELECT key_id
+                    FROM my_schema.keys
+                    WHERE user_id = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """, (user_id,))
                 result = cursor.fetchone()
-                if result:
-                    return result[0]
-                return None
+                return result[0] if result else None
         except Exception as e:
             print(f"❌ Failed to fetch active key ID: {e}")
-            return
+            return None
 
     def delete_file_metadata(self, user_id: str, file_id: str) -> bool:
+        """
+        Delete encrypted file metadata from the database.
 
+        Args:
+            user_id: UUID of the file owner.
+            file_id: UUID of the file.
+
+        Returns:
+            True if deletion succeeded, False otherwise.
+        """
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute("""
-                               DELETE
-                               FROM my_schema.files
-                               WHERE file_id = %s
-                                 AND user_id = %s RETURNING encrypted_file_path
-                               """, (file_id, user_id))
+                    DELETE FROM my_schema.files
+                    WHERE file_id = %s AND user_id = %s
+                    RETURNING encrypted_file_path
+                """, (file_id, user_id))
 
-                result = cursor.fetchone()
-                if not result:
-                    print("❌ No metadata found to delete")
+                if not cursor.fetchone():
                     return False
 
                 self.conn.commit()
-                print("✅ File metadata deleted from DB")
                 return True
 
         except Exception as e:
@@ -206,29 +310,32 @@ class Database:
 
     def update_file_path(self, file_id: str, new_path: str) -> bool:
         """
-        Update the encrypted_file_path in the database for a given file_id.
+        Update the encrypted file path for a given file ID.
 
         Args:
-            file_id: UUID of the file
-            new_path: new path to the .enc file on disk
+            file_id: UUID of the encrypted file.
+            new_path: New filesystem path to the .enc file.
 
         Returns:
-            True if updated successfully, False otherwise
+            True if the update was successful, False otherwise.
         """
         try:
             with self.conn.cursor() as cursor:
                 cursor.execute("""
-                               UPDATE my_schema.files
-                               SET encrypted_file_path = %s
-                               WHERE file_id = %s
-                               """, (new_path, file_id))
+                    UPDATE my_schema.files
+                    SET encrypted_file_path = %s
+                    WHERE file_id = %s
+                """, (new_path, file_id))
                 self.conn.commit()
-            print(f"✅ Updated DB path for file_id {file_id} to {new_path}")
             return True
+
         except Exception as e:
-            print(f"❌ Failed to update DB path for {file_id}: {e}")
             self.conn.rollback()
+            print(f"❌ Failed to update DB path: {e}")
             return False
 
     def close(self):
+        """
+        Close the database connection.
+        """
         self.conn.close()
