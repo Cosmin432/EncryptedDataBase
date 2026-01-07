@@ -6,13 +6,18 @@ with the PostgreSQL database, including users, encryption keys, and encrypted
 file metadata.
 """
 
+
 import psycopg2
+from datetime import datetime, timezone
+from psycopg2 import OperationalError
 from datetime import datetime
 from pathlib import Path
 import hashlib
 
 from key_fs_manager import save_private_key, save_public_key
 
+class DatabaseConnectionError(Exception):
+    """Raised when the database connection fails."""
 
 class Database:
     """
@@ -27,15 +32,22 @@ class Database:
         """
         Initialize the database connection.
 
-        Connects to the PostgreSQL database using predefined credentials.
+        Raises:
+            DatabaseConnectionError: If the database connection fails.
         """
-        self.conn = psycopg2.connect(
-            host="localhost",
-            port=5432,
-            user="postgres",
-            password="admin",
-            database="encrypteddb"
-        )
+        try:
+            self.conn = psycopg2.connect(
+                host="localhost",
+                port=5432,
+                user="postgres",
+                password="admin",
+                database="encrypteddb"
+            )
+        except OperationalError as e:
+            raise DatabaseConnectionError(
+                "❌ Failed to connect to the database. "
+                "Please check that PostgreSQL is running and credentials are correct."
+            ) from e
 
     def get_user_password(self, username: str) -> str | None:
         """
@@ -197,7 +209,7 @@ class Database:
                     shard_path,
                     sha256_checksum(original_file_path),
                     sha256_checksum(encrypted_file_path),
-                    datetime.utcnow()
+                    datetime.now(timezone.utc)
                 ))
 
                 result = cursor.fetchone()

@@ -8,6 +8,7 @@ encryption scheme backed by a database.
 
 import sys
 
+from file_reader import *
 from DBManager import Database
 from KeyGenerator import KeyGenerator
 from rsa_encrypth import encrypt_file_hybrid
@@ -29,6 +30,7 @@ def print_usage() -> None:
     print("Usage:")
     print("  python main.py encrypt <file_path>")
     print("  python main.py decrypt <file_id>")
+    print("  python main.py read <file_path>")
     print("  python main.py list")
     print("  python main.py delete <file_id>")
 
@@ -101,6 +103,14 @@ def main() -> None:
 
         delete_file(db, USER_ID, sys.argv[2])
         print("✅ File deleted")
+
+    elif command == "read":
+        if len(sys.argv) < 3:
+            print("❌ Missing file path")
+            return
+
+        print(read_file_from_path(sys.argv[2]))
+        print("✅ File Read")
 
     elif command == "list":
         list_encrypted_files(USER_ID)
